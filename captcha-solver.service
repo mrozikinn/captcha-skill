@@ -1,0 +1,33 @@
+[Unit]
+Description=Global CAPTCHA Solver (FastAPI + Camoufox)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+# ── EDIT THESE TWO LINES BEFORE INSTALLING ─────────────────────────────
+WorkingDirectory=WORKING_DIRECTORY
+Environment="PYTHONPATH=WORKING_DIRECTORY"
+Environment="PATH=PYTHON_BIN_DIR:/usr/local/bin:/usr/bin:/bin"
+ExecStart=PYTHON_BIN WORKING_DIRECTORY/run_captcha_solver.py
+# ────────────────────────────────────────────────────────────────────────
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=captcha-solver
+
+# Hardening (relaxed: needs to spawn browser subprocesses)
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=%h/.cache /tmp
+
+# Browser needs decent file descriptors
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

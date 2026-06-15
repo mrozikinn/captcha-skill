@@ -1,0 +1,157 @@
+# global-captcha /solve configuration
+# ============================================================================
+# TEMPLATE — replace <PLACEHOLDER> values before running.
+# All fields are also overridable via env vars (see README.md).
+#
+# To run with credentials WITHOUT committing them:
+#   1. Copy this file to config.local.yaml
+#   2. Edit config.local.yaml with real values
+#   3. config.local.yaml is gitignored
+#   4. The solver loads config.local.yaml if present, else this template
+#
+# To run via env vars only (no yaml file needed):
+#   CAPTCHA_ROUTER_URL, CAPTCHA_ROUTER_KEY, CAPTCHA_PRIMARY, CAPTCHA_FALLBACK
+# ============================================================================
+
+# --- LLM endpoint -----------------------------------------------------------
+# Any OpenAI-compatible /v1/chat/completions endpoint works.
+# Examples: ai-router, vLLM, Ollama, OpenAI, Anthropic via proxy, etc.
+router_url: "<YOUR_LLM_ENDPOINT_URL>"          # e.g. http://localhost:32128/v1/chat/completions
+router_key: "<YOUR_API_KEY_OR_EMPTY>"          # API key, or "EMPTY" for local-no-auth
+timeout_s: 30                                  # per-call timeout
+
+# --- Model chain ------------------------------------------------------------
+# Tries primary first, then walks fallback list on 5xx / timeout / bad JSON.
+# Use a multimodal (vision-capable) model that exists on your endpoint.
+# Check available models with: curl <router_url>/v1/models
+models:
+  primary: "<YOUR_PRIMARY_VISION_MODEL>"       # e.g. mimo-v2-omni, gpt-4o, gemini-2.5-flash, llava-1.6
+  fallback:                                    # tried in order, all must be on the endpoint
+    - "<YOUR_FALLBACK_MODEL_1>"
+    - "<YOUR_FALLBACK_MODEL_2>"
+
+# --- Server -----------------------------------------------------------------
+server:
+  host: "127.0.0.1"
+  port: 8002
+
+# --- Solve parameters -------------------------------------------------------
+solve:
+  max_tokens: 1024                             # enough for vision models with thinking mode
+  timeout_s: 30                                # HTTP timeout per model call
+  retry_on_garbled: 1                          # how many re-prompts if model ignores ANSWER: format
+  max_image_bytes: 4194304                     # 4 MB; resize down if larger
+
+# --- OCR (hybrid: OCR first, LLM fallback) ---------------------------------
+# For text and math captchas, the solver tries local OCR first (free, fast,
+# ~50-300ms). If OCR confidence is high, the result is returned immediately
+# and the LLM is never called. If OCR confidence is low, the solver falls
+# back to the LLM model chain. This means:
+#   - clean captchas: solved for free, no tokens
+#   - noisy / math / grid captchas: LLM kicks in
+#
+# To DISABLE OCR entirely (LLM-only mode), set backend: "none".
+# Tesseract must be installed on the system:
+#   apt install tesseract-ocr            (Debian/Ubuntu)
+#   brew install tesseract               (macOS)
+ocr:
+  backend: "tesseract"  # "tesseract" (default) | "easyocr" (TODO) | "none"
+  # Tesseract preprocessing — adjust to match your captcha style
+  scale: 3                # upscale Nx before OCR (helps tiny text)
+  threshold: 160          # 0-255 binarization threshold after grayscale
+  psm: 7                  # Tesseract page-segmentation mode (7=single line)
+  whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+  # Confidence thresholds for accepting OCR result (skip LLM).
+  # Tesseract's per-word confidence is 0-100. Stylized captchas fool
+  # Tesseract, so the threshold should be HIGH (70+) to be safe — below
+  # that, fall through to the LLM.
+  min_confidence_text: 70
+  min_confidence_math: 70
+
+# --- Logging ----------------------------------------------------------------
+log_level: "INFO"                              # DEBUG | INFO | WARNING | ERROR
+
+# --- Prompts ----------------------------------------------------------------
+# System prompt per captcha type. These are appended with a user message
+# containing the image. Keep them strict — the post-processor in solver.py
+# looks for the `ANSWER: <value>` marker as the last line.
+prompts:
+  image_text: |
+    You are solving a text CAPTCHA. Your job is to read the exact characters
+    shown in the image and report them.
+
+    RULES:
+    - Look at every character carefully, including the LAST one — end-of-string
+      characters are easy to miss.
+    - Preserve the exact case (uppercase vs lowercase matters).
+    - Do NOT add spaces, dashes, or punctuation unless they appear in the image.
+    - Typical CAPTCHA length is 4-6 characters of letters and/or digits.
+
+    OUTPUT FORMAT (REQUIRED):
+    On the very last line of your response, write EXACTLY:
+        ANSWER: <the characters you read>
+    For example, if the image shows "a4B7", your last line must be:
+        ANSWER: a4B7
+    You may think out loud above that line, but the last line must be
+    the ANSWER marker.
+  hcaptcha_image: |
+    You are solving an hCaptcha image-grid challenge. A 3x3 (or 4x4) image
+    grid is shown. Use the user's hint to decide which cells to select.
+
+    RULES:
+    - Cells are numbered starting at 0, left-to-right, top-to-bottom.
+      For a 3x3 grid: index 0 = top-left, 8 = bottom-right.
+      For a 4x4 grid: index 0 = top-left, 15 = bottom-right.
+    - Select ALL cells that match the hint. If the hint says "select all
+      images containing a bicycle", include every cell that has a bicycle.
+    - If a hint names a single object, return one index. If it says "select
+      all", return a list of indices.
+
+    OUTPUT FORMAT (REQUIRED):
+    On the very last line of your response, write EXACTLY:
+        ANSWER: [<comma-separated cell indices>]
+    Examples:
+        ANSWER: [5]
+        ANSWER: [1, 5]
+        ANSWER: [0, 2, 4, 6, 8]
+    You may think above the marker, but the last line must be the ANSWER.
+  recaptcha_v2: |
+    You are solving a reCAPTCHA v2 image-grid challenge. Use the user's
+    hint to select matching tiles from the 3x3 or 4x4 grid.
+
+    RULES:
+    - Cells numbered 0 to N-1 (8 for 3x3, 15 for 4x4), left-to-right, top-to-bottom.
+    - Select all cells that match the hint.
+
+    OUTPUT FORMAT (REQUIRED):
+    On the very last line of your response, write EXACTLY:
+        ANSWER: [<comma-separated cell indices>]
+  math: |
+    You are solving a math CAPTCHA. The image shows a simple arithmetic
+    expression (add, subtract, multiply, divide). Compute the result and
+    reply with the bare number.
+
+    RULES:
+    - The expression is usually single-step (e.g. "65 × 5", "12 + 7").
+    - The result is always a non-negative integer.
+    - Do not add units, do not explain, just the number.
+
+    OUTPUT FORMAT (REQUIRED):
+    On the very last line of your response, write EXACTLY:
+        ANSWER: <integer>
+    Example: if the image shows "65 × 5", your last line must be:
+        ANSWER: 325
+  object_select: |
+    You are solving a bounding-box detection CAPTCHA. The image contains
+    one or more objects and you must return bounding boxes (in pixel
+    coordinates) for the requested target.
+
+    RULES:
+    - Coordinates are (x1, y1, x2, y2) in pixels, top-left origin.
+    - Return one box per matching object, in any order.
+
+    OUTPUT FORMAT (REQUIRED):
+    On the very last line of your response, write EXACTLY:
+        ANSWER: [[x1, y1, x2, y2], ...]
+    Example:
+        ANSWER: [[10, 20, 100, 150], [200, 30, 300, 180]]

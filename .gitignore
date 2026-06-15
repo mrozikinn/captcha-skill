@@ -1,0 +1,25 @@
+# Captcha solver runtime config
+# This file contains real credentials for this install. DO NOT commit.
+config.local.yaml
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Test outputs
+samples/*.jpg
+samples/*.png
+!samples/.gitkeep
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+logs/
