@@ -1,5 +1,7 @@
 # Global CAPTCHA Solver
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+
 ### GIVE stars if use thanks
 
 
@@ -276,6 +278,6 @@ sudo systemctl restart captcha-solver
 
 Trade-off: you need to run a browser pool, which uses ~500MB RAM per worker. A 4-core box handles ~5 concurrent solves comfortably.
 
-## License
+## [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 MIT for the wrapper, launcher, and docs. Camoufox itself is MPL-2.0.
